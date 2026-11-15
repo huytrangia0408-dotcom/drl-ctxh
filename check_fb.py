@@ -60,12 +60,24 @@ def prepare_cookies(raw_cookies):
 def get_latest_post(context, page_url):
     page = context.new_page()
     try:
-        page.goto(page_url, wait_until="domcontentloaded", timeout=35000)
-        time.sleep(6)
-        page.mouse.wheel(0, 1000)
+        # Thử tải tối đa 2 lần nếu trang chỉ hiện tiêu đề "Facebook"
+        for attempt in range(2):
+            page.goto(page_url, wait_until="networkidle", timeout=45000)
+            time.sleep(4)
+            if page.title().strip() != "Facebook":
+                break
+            print(f"Trang tải chưa xong (lần {attempt + 1}), đang tải lại...")
+            time.sleep(3)
+
+        # Chờ khung bài viết xuất hiện tối đa 15 giây
+        try:
+            page.wait_for_selector('[role="article"]', timeout=15000)
+        except Exception:
+            pass
+
+        page.mouse.wheel(0, 1200)
         time.sleep(3)
 
-        # In tiêu đề trang để kiểm tra xem đã vào đúng Page hay bị kẹt ở trang Login
         print(f"Tiêu đề trang tải được: {page.title()}")
 
         # Tìm bài viết trong các khối article
@@ -78,7 +90,8 @@ def get_latest_post(context, page_url):
                     h.includes('/photos/') || 
                     h.includes('story_fbid=') || 
                     h.includes('/videos/') || 
-                    h.includes('/reel/')
+                    h.includes('/reel/') ||
+                    h.includes('permalink.php')
                 );
                 if (postLink) {
                     return {
@@ -94,7 +107,10 @@ def get_latest_post(context, page_url):
             return None, None
 
         raw_link = result["link"]
-        clean_link = raw_link.split('?')[0] if any(x in raw_link for x in ['/posts/', '/videos/', '/reel/']) else raw_link.split('&')[0]
+        if any(x in raw_link for x in ['/posts/', '/videos/', '/reel/']):
+            clean_link = raw_link.split('?')[0]
+        else:
+            clean_link = raw_link.split('&')[0]
 
         lines = [line.strip() for line in result["text"].split('\n') if len(line.strip()) > 15]
         summary = "\n".join(lines[:5]) if lines else "Có bài đăng mới trên Fanpage."
@@ -120,13 +136,10 @@ def main():
             viewport={"width": 1280, "height": 900}
         )
         
-        # Nạp cookie đăng nhập Facebook
         cookies = prepare_cookies(FB_COOKIES)
         if cookies:
             context.add_cookies(cookies)
             print(f"Đã nạp {len(cookies)} cookies.")
-        else:
-            print("Cảnh báo: Chưa có FB_COOKIES!")
 
         for item in PAGES:
             name = item["name"]
