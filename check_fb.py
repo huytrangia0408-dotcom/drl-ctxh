@@ -1,6 +1,7 @@
 import os
 import json
 import time
+from datetime import datetime, timezone, timedelta
 import requests
 from playwright.sync_api import sync_playwright
 
@@ -12,7 +13,6 @@ TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN")
 
 STATE_FILE = "last_post.txt"
-APIFY_INTERVAL = 7200  # 2 tieng (7200 giay) goi Apify 1 lan de tiet kiem $5 mien phi
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
@@ -38,7 +38,21 @@ def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-# 1. Quet truc tiep Phong CTSV HUIT bang Playwright
+# Tinh toan chu ky goi Apify theo gio Viet Nam (UTC+7)
+def get_apify_interval():
+    vn_tz = timezone(timedelta(hours=7))
+    hour = datetime.now(vn_tz).hour
+    
+    # Tu 23h dem den truoc 7h sang: Nghi quet Apify
+    if hour >= 23 or hour < 7:
+        return None
+    # Gio vang (11h-14h trua va 17h-22h toi): 30 phut/lan (dat 1500s de tru hao do tre cron)
+    if (11 <= hour < 14) or (17 <= hour < 22):
+        return 1500
+    # Cac gio ban ngay con lai: 1 tieng/lan (dat 3300s)
+    return 3300
+
+# 1. Quet truc tiep Phong CTSV HUIT bang Playwright (Mien phi, 15 phut/lan)
 def check_ctsv_playwright():
     print("Dang quet: Phong CTSV HUIT...")
     with sync_playwright() as p:
@@ -132,24 +146,28 @@ def main():
     elif ctsv_link:
         print("[Phong CTSV HUIT] Chua co bai viet moi.")
 
-    # 2. Kiem tra Doan Thanh nien - HSV HUIT (moi 2 tieng/lan)
-    now = time.time()
-    last_apify = state.get("last_apify_check", 0)
-    if now - last_apify >= APIFY_INTERVAL:
-        doan_link, doan_summary = check_doan_apify()
-        state["last_apify_check"] = now
-        updated = True
-
-        print(f"[Doan Thanh nien - HSV HUIT] Link tim thay: {doan_link}")
-        if doan_link and doan_link != state.get("Đoàn Thanh niên - HSV HUIT"):
-            msg = f"🔔 <b>Đoàn Thanh niên - HSV HUIT</b> vừa có bài mới:{chr(10)}{chr(10)}{doan_summary}{chr(10)}{chr(10)}🔗 <a href='{doan_link}'>Mở bài viết trên Facebook</a>"
-            send_telegram(msg)
-            state["Đoàn Thanh niên - HSV HUIT"] = doan_link
-        elif doan_link:
-            print("[Doan Thanh nien - HSV HUIT] Chua co bai viet moi.")
+    # 2. Kiem tra Doan Thanh nien - HSV HUIT theo khung gio thong minh
+    interval = get_apify_interval()
+    if interval is None:
+        print("[Doan Thanh nien - HSV HUIT] Dang trong khung gio nghi dem (23h - 7h sang).")
     else:
-        mins_left = int((APIFY_INTERVAL - (now - last_apify)) / 60)
-        print(f"[Doan Thanh nien - HSV HUIT] Dang cho chu ky Apify tiep theo (con {mins_left} phut).")
+        now = time.time()
+        last_apify = state.get("last_apify_check", 0)
+        if now - last_apify >= interval:
+            doan_link, doan_summary = check_doan_apify()
+            state["last_apify_check"] = now
+            updated = True
+
+            print(f"[Doan Thanh nien - HSV HUIT] Link tim thay: {doan_link}")
+            if doan_link and doan_link != state.get("Đoàn Thanh niên - HSV HUIT"):
+                msg = f"🔔 <b>Đoàn Thanh niên - HSV HUIT</b> vừa có bài mới:{chr(10)}{chr(10)}{doan_summary}{chr(10)}{chr(10)}🔗 <a href='{doan_link}'>Mở bài viết trên Facebook</a>"
+                send_telegram(msg)
+                state["Đoàn Thanh niên - HSV HUIT"] = doan_link
+            elif doan_link:
+                print("[Doan Thanh nien - HSV HUIT] Chua co bai viet moi.")
+        else:
+            mins_left = int((interval - (now - last_apify)) / 60)
+            print(f"[Doan Thanh nien - HSV HUIT] Dang cho chu ky tiep theo (con khoang {mins_left} phut).")
 
     if updated:
         save_state(state)
