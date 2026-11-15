@@ -46,13 +46,13 @@ def get_apify_interval():
     # Tu 23h dem den truoc 7h sang: Nghi quet Apify
     if hour >= 23 or hour < 7:
         return None
-    # Gio vang (11h-14h trua va 17h-22h toi): 30 phut/lan (dat 1500s de tru hao do tre cron)
+    # Gio vang (11h-14h trua va 17h-22h toi): 30 phut/lan (1500s)
     if (11 <= hour < 14) or (17 <= hour < 22):
         return 1500
-    # Cac gio ban ngay con lai: 1 tieng/lan (dat 3300s)
+    # Cac gio ban ngay con lai: 1 tieng/lan (3300s)
     return 3300
 
-# 1. Quet truc tiep Phong CTSV HUIT bang Playwright (Mien phi, 15 phut/lan)
+# 1. Quet truc tiep Phong CTSV HUIT (co co che thu lai neu mang lag)
 def check_ctsv_playwright():
     print("Dang quet: Phong CTSV HUIT...")
     with sync_playwright() as p:
@@ -64,25 +64,29 @@ def check_ctsv_playwright():
         )
         page = context.new_page()
         try:
-            page.goto(CTSV_URL, wait_until="domcontentloaded", timeout=35000)
-            time.sleep(6)
-            page.keyboard.press("Escape")
-            time.sleep(1)
-            page.mouse.wheel(0, 1200)
-            time.sleep(3)
+            for attempt in range(2):
+                page.goto(CTSV_URL, wait_until="domcontentloaded", timeout=40000)
+                time.sleep(6)
+                page.keyboard.press("Escape")
+                time.sleep(1)
+                page.mouse.wheel(0, 1500)
+                time.sleep(3)
 
-            articles = page.locator('[role="article"]')
-            count = min(articles.count(), 5)
-            for i in range(count):
-                art = articles.nth(i)
-                hrefs = art.locator("a").evaluate_all("els => els.map(e => e.href)")
-                for href in hrefs:
-                    if any(k in href for k in ["/posts/", "/photos/", "story_fbid=", "/videos/", "/reel/", "permalink.php"]):
-                        clean_link = href.split("?")[0] if any(x in href for x in ["/posts/", "/videos/", "/reel/"]) else href.split("&")[0]
-                        raw_text = art.inner_text()
-                        lines = [line.strip() for line in raw_text.splitlines() if len(line.strip()) > 15]
-                        summary = chr(10).join(lines[:5]) if lines else "Co bai dang moi tren Fanpage."
-                        return clean_link, summary[:450]
+                articles = page.locator('[role="article"]')
+                count = min(articles.count(), 10)
+                for i in range(count):
+                    art = articles.nth(i)
+                    hrefs = art.locator("a").evaluate_all("els => els.map(e => e.href)")
+                    for href in hrefs:
+                        if any(k in href for k in ["/posts/", "/photos/", "story_fbid=", "/videos/", "/reel/", "permalink.php"]):
+                            clean_link = href.split("?")[0] if any(x in href for x in ["/posts/", "/videos/", "/reel/"]) else href.split("&")[0]
+                            raw_text = art.inner_text()
+                            lines = [line.strip() for line in raw_text.splitlines() if len(line.strip()) > 15]
+                            summary = chr(10).join(lines[:5]) if lines else "Co bai dang moi tren Fanpage."
+                            return clean_link, summary[:450]
+                
+                if attempt == 0:
+                    print("  -> Lan 1 chua thay bai viet, dang tai lai trang...")
             return None, None
         except Exception as e:
             print(f"[Phong CTSV HUIT] Loi: {e}")
