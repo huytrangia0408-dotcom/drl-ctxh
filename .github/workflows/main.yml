@@ -2,7 +2,7 @@ name: Check HUIT Facebook Posts
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -11,8 +11,9 @@ permissions:
 jobs:
   check-posts:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Tải mã nguồn về máy ảo
+      - name: Tải mã nguồn
         uses: actions/checkout@v4
 
       - name: Cài đặt Python
@@ -29,13 +30,12 @@ jobs:
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          FB_COOKIES: ${{ secrets.FB_COOKIES }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: python check_fb.py
 
       - name: Lưu lại trạng thái bài viết mới nhất
         run: |
-          git config --global user.name "GitHub Action Bot"
-          git config --global user.email "action@github.com"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           git add last_post.txt
-          git commit -m "Update last post" || exit 0
-          git push
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Cập nhật last_post.txt" && git push)
