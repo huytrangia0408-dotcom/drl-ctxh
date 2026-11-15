@@ -1,5 +1,4 @@
 import os
-import re
 import json
 import time
 import requests
@@ -12,6 +11,7 @@ PAGES = [
 
 TG_TOKEN = os.environ.get("TG_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
+FB_COOKIES = os.environ.get("FB_COOKIES")
 STATE_FILE = "last_post.txt"
 
 def send_telegram(message):
@@ -38,61 +38,75 @@ def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-def get_latest_post(browser, page_url):
-    context = browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        locale="vi-VN",
-        viewport={"width": 1280, "height": 800}
-    )
+def prepare_cookies(raw_cookies):
+    if not raw_cookies:
+        return []
+    cookies = json.loads(raw_cookies)
+    valid_cookies = []
+    for c in cookies:
+        cookie_dict = {
+            "name": c["name"],
+            "value": c["value"],
+            "domain": c.get("domain", ".facebook.com"),
+            "path": c.get("path", "/"),
+        }
+        if "sameSite" in c and c["sameSite"] in ["Strict", "Lax", "None"]:
+            cookie_dict["sameSite"] = c["sameSite"]
+        else:
+            cookie_dict["sameSite"] = "None"
+        valid_cookies.append(cookie_dict)
+    return valid_cookies
+
+def get_latest_post(context, page_url):
     page = context.new_page()
     try:
-        page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
-        time.sleep(5)
-        
-        # Nhấn ESC để đóng popup yêu cầu đăng nhập của Facebook (nếu hiện ra)
-        page.keyboard.press("Escape")
-        time.sleep(1)
-        
-        # Cuộn nhẹ xuống để Facebook tải dữ liệu bài viết
-        page.mouse.wheel(0, 800)
+        page.goto(page_url, wait_until="domcontentloaded", timeout=35000)
+        time.sleep(6)
+        page.mouse.wheel(0, 1000)
         time.sleep(3)
 
-        # Tìm tất cả đường link trên trang
-        hrefs = page.evaluate("""() => {
-            return Array.from(document.querySelectorAll('a'))
-                .map(a => a.href)
-                .filter(href => href.includes('/posts/') || href.includes('/photos/') || href.includes('story_fbid=') || href.includes('/videos/') || href.includes('/reel/'));
-        }""")
+        # In tiêu đề trang để kiểm tra xem đã vào đúng Page hay bị kẹt ở trang Login
+        print(f"Tiêu đề trang tải được: {page.title()}")
 
-        # Lấy bài viết đầu tiên hợp lệ (loại bỏ các link rác)
-        latest_link = None
-        for h in hrefs:
-            clean = h.split('?')[0] if '/posts/' in h or '/videos/' in h or '/reel/' in h else h.split('&')[0]
-            if "facebook.com" in clean:
-                latest_link = clean
-                break
-
-        # Lấy đoạn nội dung văn bản bài viết trên trang
-        post_text = page.evaluate("""() => {
+        # Tìm bài viết trong các khối article
+        result = page.evaluate("""() => {
             const articles = document.querySelectorAll('[role="article"]');
-            if (articles.length > 0) {
-                return articles[0].innerText;
+            for (let art of articles) {
+                const links = Array.from(art.querySelectorAll('a')).map(a => a.href);
+                const postLink = links.find(h => 
+                    h.includes('/posts/') || 
+                    h.includes('/photos/') || 
+                    h.includes('story_fbid=') || 
+                    h.includes('/videos/') || 
+                    h.includes('/reel/')
+                );
+                if (postLink) {
+                    return {
+                        link: postLink,
+                        text: art.innerText
+                    };
+                }
             }
-            return "";
+            return null;
         }""")
 
-        # Làm gọn nội dung hiển thị
-        lines = [line.strip() for line in post_text.split('\n') if len(line.strip()) > 15]
-        summary = "\n".join(lines[:4]) if lines else "Có bài đăng mới trên Fanpage (bấm vào link để xem chi tiết)."
-        if len(summary) > 400:
-            summary = summary[:400] + "..."
+        if not result:
+            return None, None
 
-        return latest_link, summary
+        raw_link = result["link"]
+        clean_link = raw_link.split('?')[0] if any(x in raw_link for x in ['/posts/', '/videos/', '/reel/']) else raw_link.split('&')[0]
+
+        lines = [line.strip() for line in result["text"].split('\n') if len(line.strip()) > 15]
+        summary = "\n".join(lines[:5]) if lines else "Có bài đăng mới trên Fanpage."
+        if len(summary) > 450:
+            summary = summary[:450] + "..."
+
+        return clean_link, summary
     except Exception as e:
         print(f"Lỗi khi tải {page_url}: {e}")
         return None, None
     finally:
-        context.close()
+        page.close()
 
 def main():
     state = load_state()
@@ -100,16 +114,29 @@ def main():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            locale="vi-VN",
+            viewport={"width": 1280, "height": 900}
+        )
+        
+        # Nạp cookie đăng nhập Facebook
+        cookies = prepare_cookies(FB_COOKIES)
+        if cookies:
+            context.add_cookies(cookies)
+            print(f"Đã nạp {len(cookies)} cookies.")
+        else:
+            print("Cảnh báo: Chưa có FB_COOKIES!")
+
         for item in PAGES:
             name = item["name"]
             url = item["url"]
-            print(f"Đang quét: {name}...")
+            print(f"\nĐang quét: {name}...")
             
-            link, summary = get_latest_post(browser, url)
+            link, summary = get_latest_post(context, url)
             print(f"[{name}] Link tìm thấy: {link}")
 
             if not link:
-                print(f"[{name}] Không lấy được link bài viết.")
                 continue
 
             if link != state.get(url):
@@ -123,6 +150,7 @@ def main():
                 updated = True
             else:
                 print(f"[{name}] Chưa có bài viết mới.")
+                
         browser.close()
 
     if updated:
