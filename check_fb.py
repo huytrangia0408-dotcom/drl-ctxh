@@ -1,23 +1,13 @@
 import os
 import json
 import time
+import urllib.parse
 import requests
 from playwright.sync_api import sync_playwright
 
-PAGES = [
-    {
-        "name": "Phòng CTSV HUIT",
-        "urls": ["https://www.facebook.com/ctsv.huit"]
-    },
-    {
-        "name": "Đoàn Thanh niên - HSV HUIT",
-        "urls": ["https://www.facebook.com/dtn.hsv.huit"]
-    }
-]
-
+CTSV_URL = "https://www.facebook.com/ctsv.huit"
 TG_TOKEN = os.environ.get("TG_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
-FB_COOKIES = os.environ.get("FB_COOKIES")
 STATE_FILE = "last_post.txt"
 
 def send_telegram(message):
@@ -44,129 +34,42 @@ def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-def prepare_cookies(raw_cookies):
-    if not raw_cookies:
-        return []
-    cookies = json.loads(raw_cookies)
-    valid_cookies = []
-    for c in cookies:
-        cookie_dict = {
-            "name": c["name"],
-            "value": c["value"],
-            "domain": c.get("domain", ".facebook.com"),
-            "path": c.get("path", "/"),
-        }
-        if "sameSite" in c and c["sameSite"] in ["Strict", "Lax", "None"]:
-            cookie_dict["sameSite"] = c["sameSite"]
-        else:
-            cookie_dict["sameSite"] = "None"
-        valid_cookies.append(cookie_dict)
-    return valid_cookies
-
-def get_latest_post(context, urls):
+# 1. Quét trực tiếp Phòng CTSV HUIT bằng Playwright
+def check_ctsv_playwright(context):
+    print("\nĐang quét: Phòng CTSV HUIT...")
     page = context.new_page()
     try:
-        for target_url in urls:
-            print(f"  -> Đang mở: {target_url}")
-            page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
-            time.sleep(6)
-            
-            # Nhấn ESC đề phòng có popup đăng nhập che màn hình
-            page.keyboard.press("Escape")
-            time.sleep(1)
-            page.mouse.wheel(0, 1200)
-            time.sleep(3)
+        page.goto(CTSV_URL, wait_until="domcontentloaded", timeout=40000)
+        time.sleep(6)
+        page.keyboard.press("Escape")
+        time.sleep(1)
+        page.mouse.wheel(0, 1200)
+        time.sleep(3)
 
-            title = page.title().strip()
-            print(f"  -> Tiêu đề nhận được: {title}")
-
-            result = page.evaluate("""() => {
-                const articles = document.querySelectorAll('[role="article"]');
-                for (let art of articles) {
-                    const links = Array.from(art.querySelectorAll('a')).map(a => a.href);
-                    const postLink = links.find(h => 
-                        h.includes('/posts/') || 
-                        h.includes('/photos/') || 
-                        h.includes('story_fbid=') || 
-                        h.includes('/videos/') || 
-                        h.includes('/reel/') ||
-                        h.includes('permalink.php')
-                    );
-                    if (postLink) {
-                        return { link: postLink, text: art.innerText };
-                    }
+        result = page.evaluate("""() => {
+            const articles = document.querySelectorAll('[role="article"]');
+            for (let art of articles) {
+                const links = Array.from(art.querySelectorAll('a')).map(a => a.href);
+                const postLink = links.find(h => 
+                    h.includes('/posts/') || 
+                    h.includes('/photos/') || 
+                    h.includes('story_fbid=') || 
+                    h.includes('/videos/') || 
+                    h.includes('/reel/') ||
+                    h.includes('permalink.php')
+                );
+                if (postLink) {
+                    return { link: postLink, text: art.innerText };
                 }
-                return null;
-            }""")
+            }
+            return null;
+        }""")
 
-            if result and result.get("link"):
-                raw_link = result["link"]
-                if any(x in raw_link for x in ['/posts/', '/videos/', '/reel/']):
-                    clean_link = raw_link.split('?')[0]
-                else:
-                    clean_link = raw_link.split('&')[0]
+        if not result or not result.get("link"):
+            return None, None
 
-                lines = [line.strip() for line in result["text"].split('\n') if len(line.strip()) > 15]
-                summary = "\n".join(lines[:5]) if lines else "Có bài đăng mới trên Fanpage."
-                if len(summary) > 450:
-                    summary = summary[:450] + "..."
+        raw_link = result["link"]
+        clean_link = raw_link.split('?')[0] if any(x in raw_link for x in ['/posts/', '/videos/', '/reel/']) else raw_link.split('&')[0]
 
-                return clean_link, summary
-
-            body_snippet = page.evaluate("() => document.body.innerText.replace(/\\s+/g, ' ').slice(0, 150)")
-            print(f"  -> Nội dung hiển thị: {body_snippet}")
-
-        return None, None
-    except Exception as e:
-        print(f"Lỗi khi tải trang: {e}")
-        return None, None
-    finally:
-        page.close()
-
-def main():
-    state = load_state()
-    updated = False
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            locale="vi-VN",
-            viewport={"width": 1280, "height": 900}
-        )
-        
-        cookies = prepare_cookies(FB_COOKIES)
-        if cookies:
-            context.add_cookies(cookies)
-            print(f"Đã nạp {len(cookies)} cookies.")
-
-        for item in PAGES:
-            name = item["name"]
-            urls = item["urls"]
-            print(f"\nĐang quét: {name}...")
-            
-            link, summary = get_latest_post(context, urls)
-            print(f"[{name}] Link tìm thấy: {link}")
-
-            if not link:
-                continue
-
-            if link != state.get(name):
-                msg = (
-                    f"🔔 <b>{name}</b> vừa có bài mới:\n\n"
-                    f"{summary}\n\n"
-                    f"🔗 <a href='{link}'>Mở bài viết trên Facebook</a>"
-                )
-                send_telegram(msg)
-                state[name] = link
-                updated = True
-            else:
-                print(f"[{name}] Chưa có bài viết mới.")
-                
-        browser.close()
-
-    if updated:
-        save_state(state)
-
-if __name__ == "__main__":
-    main()
+        lines = [line.strip() for line in result["text"].split('\n') if len(line.strip()) > 15]
+        summary =
