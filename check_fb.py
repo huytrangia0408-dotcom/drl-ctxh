@@ -11,11 +11,7 @@ PAGES = [
     },
     {
         "name": "Đoàn Thanh niên - HSV HUIT",
-        "urls": [
-            "https://www.facebook.com/dtn.hsv.huit",
-            "https://m.facebook.com/dtn.hsv.huit",
-            "https://www.facebook.com/profile.php?id=100064638733637"
-        ]
+        "urls": ["https://www.facebook.com/dtn.hsv.huit"]
     }
 ]
 
@@ -71,18 +67,20 @@ def get_latest_post(context, urls):
     page = context.new_page()
     try:
         for target_url in urls:
-            print(f"  -> Đang thử mở: {target_url}")
+            print(f"  -> Đang mở: {target_url}")
             page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
             time.sleep(6)
+            
+            # Nhấn ESC đề phòng có popup đăng nhập che màn hình
+            page.keyboard.press("Escape")
+            time.sleep(1)
             page.mouse.wheel(0, 1200)
             time.sleep(3)
 
             title = page.title().strip()
             print(f"  -> Tiêu đề nhận được: {title}")
 
-            # Bóc tách link bài viết (hỗ trợ cả giao diện www và m.facebook)
             result = page.evaluate("""() => {
-                // Thử tìm theo chuẩn giao diện máy tính
                 const articles = document.querySelectorAll('[role="article"]');
                 for (let art of articles) {
                     const links = Array.from(art.querySelectorAll('a')).map(a => a.href);
@@ -98,24 +96,11 @@ def get_latest_post(context, urls):
                         return { link: postLink, text: art.innerText };
                     }
                 }
-                
-                // Dự phòng: Quét toàn bộ thẻ a trên trang (dùng cho giao diện m.facebook)
-                const allLinks = Array.from(document.querySelectorAll('a'));
-                for (let a of allLinks) {
-                    const h = a.href;
-                    if (h.includes('/posts/') || h.includes('story_fbid=') || h.includes('permalink.php')) {
-                        const container = a.closest('div[data-ft]') || a.parentElement?.parentElement;
-                        return {
-                            link: h,
-                            text: container ? container.innerText : "Bài đăng mới"
-                        };
-                    }
-                }
                 return null;
             }""")
 
             if result and result.get("link"):
-                raw_link = result["link"].replace("m.facebook.com", "www.facebook.com")
+                raw_link = result["link"]
                 if any(x in raw_link for x in ['/posts/', '/videos/', '/reel/']):
                     clean_link = raw_link.split('?')[0]
                 else:
@@ -128,9 +113,8 @@ def get_latest_post(context, urls):
 
                 return clean_link, summary
 
-            # Nếu không thấy bài, in ra thông báo trên trang để xem Facebook đang chặn gì
-            body_snippet = page.evaluate("() => document.body.innerText.replace(/\\s+/g, ' ').slice(0, 180)")
-            print(f"  -> Nội dung trang hiển thị: {body_snippet}")
+            body_snippet = page.evaluate("() => document.body.innerText.replace(/\\s+/g, ' ').slice(0, 150)")
+            print(f"  -> Nội dung hiển thị: {body_snippet}")
 
         return None, None
     except Exception as e:
