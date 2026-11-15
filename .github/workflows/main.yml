@@ -2,8 +2,8 @@ name: Check HUIT Facebook Posts
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # Tự động kiểm tra mỗi 15 phút
-  workflow_dispatch: # Cho phép chạy thử thủ công bất cứ lúc nào
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -20,8 +20,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Cài đặt thư viện requests
-        run: pip install requests
+      - name: Cài đặt thư viện và trình duyệt Chromium
+        run: |
+          pip install requests playwright
+          playwright install chromium
 
       - name: Chạy script kiểm tra
         env:
