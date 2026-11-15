@@ -5,8 +5,8 @@ import requests
 from playwright.sync_api import sync_playwright
 
 PAGES = [
-    {"name": "Phòng CTSV HUIT", "url": "https://www.facebook.com/ctsv.huit"},
-    {"name": "Đoàn Thanh niên - HSV HUIT", "url": "https://www.facebook.com/dtn.hsv.huit"}
+    {"name": "Phòng CTSV HUIT", "url": "https://www.facebook.com/profile.php?id=100064391331523"},
+    {"name": "Đoàn Thanh niên - HSV HUIT", "url": "https://www.facebook.com/profile.php?id=100064638733637"}
 ]
 
 TG_TOKEN = os.environ.get("TG_TOKEN")
@@ -60,7 +60,6 @@ def prepare_cookies(raw_cookies):
 def get_latest_post(context, page_url):
     page = context.new_page()
     try:
-        # Thử tải tối đa 2 lần nếu trang chỉ hiện tiêu đề "Facebook"
         for attempt in range(2):
             page.goto(page_url, wait_until="networkidle", timeout=45000)
             time.sleep(4)
@@ -69,7 +68,6 @@ def get_latest_post(context, page_url):
             print(f"Trang tải chưa xong (lần {attempt + 1}), đang tải lại...")
             time.sleep(3)
 
-        # Chờ khung bài viết xuất hiện tối đa 15 giây
         try:
             page.wait_for_selector('[role="article"]', timeout=15000)
         except Exception:
@@ -80,7 +78,6 @@ def get_latest_post(context, page_url):
 
         print(f"Tiêu đề trang tải được: {page.title()}")
 
-        # Tìm bài viết trong các khối article
         result = page.evaluate("""() => {
             const articles = document.querySelectorAll('[role="article"]');
             for (let art of articles) {
