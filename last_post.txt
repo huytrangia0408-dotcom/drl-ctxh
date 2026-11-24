@@ -3,5 +3,5 @@
   "https://www.facebook.com/profile.php?id=100064391331523": "https://www.facebook.com/ctsv.huit/posts/pfbid0h8A1jUBuBHywhbArw1TXy5fv8TKxJkB7mBvTxJ1RrHTVdaYQkP3Lg6kLCKesZfhXl",
   "Phòng CTSV HUIT": "https://www.facebook.com/ctsv.huit/posts/pfbid0BgmeC7CMKmbBsJDV2CCzVcusuY5g58bjuipCJZNzFxC7jDn63sir6K5EYKRBY7wDl",
   "last_apify_check": 1795534900.7939746,
-  "Thư viện HUIT": "https://www.facebook.com/thuvienHUIT/posts/pfbid02VUocnruK9KGLgLwZaKYcyE9W8fBu8dkqUSFUUeW2wzdNPurf74aEvN1PQHnKEqyel"
+  "Thư viện HUIT": "https://www.facebook.com/thuvienHUIT/posts/pfbid0RwARshGxJ6bbkJhHQT7Kcchz45UqGG9konoZmxmrnp3QQuCQ8vhGHpvpmMFA96mil"
 }
